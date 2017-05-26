@@ -4,71 +4,127 @@
 
 #include "gtest/gtest.h"
 
-#include "cpp_redis/cpp_redis"
+#include "redispack/connection.h"
 #include "redispack/hash.h"
 
+#include <algorithm>
+#include <array>
 #include <exception>
 #include <iostream>
 #include <memory>
 #include <string>
 
-// cpp_redis
-using cpp_redis::redis_client;
-using cpp_redis::reply;
-
-// redispack
+// redispack 
 using redispack::hash;
+using redispack::make_and_connect;
 
 // std
+using std::all_of;
+using std::array;
 using std::boolalpha;
 using std::cerr;
 using std::cout;
 using std::exception;
+using std::find;
 using std::make_shared;
 using std::string;
 
-TEST(Main, Miscellaneous) {
-    try {
-        static constexpr auto KEY = 777;
+TEST(Hash, MakeAndConnect) {
+    auto client_ptr = make_and_connect().unwrap_unchecked();
+    EXPECT_TRUE(client_ptr->is_connected());
+}
 
-        auto clientPtr = make_shared<redis_client>();
-        clientPtr->connect();
+TEST(Hash, SetExistsDel) {
+    auto client_ptr = make_and_connect().unwrap_unchecked();
+    hash<string, string> h(client_ptr, "hash_set_exists_del");
 
-        hash<int, string> h(clientPtr, "hash");
+    // not testing whether the entry does exist before or not
+    h.del("a");
+    EXPECT_FALSE(h.exists("a"));
 
-        cout << boolalpha << h.set(KEY, "Hello World!") << "\n";
-        cout << boolalpha << h.exists(KEY) << "\n";
+    h.set("a", "AAA");
+    EXPECT_TRUE(h.exists("a"));
+    
+    const auto opt = h.get("a");
+    EXPECT_TRUE(opt.is_some());
+    EXPECT_EQ("AAA", opt.get_unchecked());
+    
+    EXPECT_TRUE(h.del("a"));
+    EXPECT_FALSE(h.exists("a"));
 
-        h.get(KEY).match(
-            [](const string &value) {
-                cout << "(" << KEY << ": " << value << ")\n";
-            },
-            [] { cout << "(NIL)\n"; });
+    const auto opt_none = h.get("a");
+    EXPECT_TRUE(opt_none.is_none());
+}
 
-        h.setnx(888, "EightX3");
+TEST(Hash, SetExistsGet) {
+    auto client_ptr = make_and_connect().unwrap_unchecked();
+    hash<int, string> h(client_ptr, "hash_set_exists_get");
 
-        for (const auto key : h.keys()) {
-            cout << "Key: " << key << "\n";
-        }
+    h.set(777, "Hello World!");
+    EXPECT_TRUE(h.exists(777));
+    
+    const auto opt = h.get(777);
+    EXPECT_TRUE(opt.is_some());
+    EXPECT_EQ("Hello World!", opt.get_unchecked());
 
-        for (const auto value : h.vals()) {
-            cout << "Val: " << value << "\n";
-        }
+//     h.get(KEY).match(
+//         [](const string &value) {
+//             cout << "(" << KEY << ": " << value << ")\n";
+//         },
+//         [] { cout << "(NIL)\n"; });
+// 
+//     h.setnx(888, "EightX3");
+// 
+//     for (const auto key : h.keys()) {
+//         cout << "Key: " << key << "\n";
+//     }
+// 
+//     for (const auto value : h.vals()) {
+//         cout << "Val: " << value << "\n";
+//     }
+// 
+//     for (const auto key_val : h.key_vals()) {
+//         cout << "(Key: " << key_val.first << ", Val: " << key_val.second << ")\n";
+//     }
+// 
+//     cout << "Length: " << h.len() << "\n";
+//     cout << boolalpha << h.del(KEY) << "\n";
+//     cout << "Length: " << h.len() << "\n";
+}
 
-        for (const auto key_val : h.key_vals()) {
-            cout << "(Key: " << key_val.first << ", Val: " << key_val.second << ")\n";
-        }
+TEST(Hash, KeyVals) {
+    auto client_ptr = make_and_connect().unwrap_unchecked();
+    hash<int, string> h(client_ptr, "hash_key_vals");
 
-        cout << "Length: " << h.len() << "\n";
-        cout << boolalpha << h.del(KEY) << "\n";
-        cout << "Length: " << h.len() << "\n";
+    const array<int, 3> keys{8, 2, 77};
+    const array<string, 3> values{"Eight", "Two", "Seven"};
+
+    // delete all entries first
+    for (const auto key : h.keys()) {
+        EXPECT_TRUE(h.del(key));
     }
-    catch (const exception &e) {
-        cerr << "Error: " << e.what() << "\n";
-        FAIL();
+
+    for (size_t i = 0; i < keys.size(); ++i) {
+        EXPECT_TRUE(h.setnx(keys[i], values[i]));
     }
 
-    SUCCEED();
+    EXPECT_TRUE(all_of(keys.cbegin(), keys.cend(), [&h](const auto key) {
+        const auto h_keys = h.keys();
+        return h_keys.find(key) != h_keys.cend();
+    }));
+
+    EXPECT_TRUE(all_of(values.cbegin(), values.cend(), [&h](const auto &value) {
+        const auto h_vals = h.vals();
+        return find(h_vals.cbegin(), h_vals.cend(), value) != h_vals.cend();
+    }));
+
+    const auto range = {0, 1, 2};
+    
+    EXPECT_TRUE(all_of(range.begin(), range.end(), [&h, &keys, &values](const auto index) {
+        const auto key = keys[index];
+        const auto &value = values[index];
+        return h.key_vals().at(key) == value;
+    }));
 }
 
 int main(int argc, char * argv[]) {

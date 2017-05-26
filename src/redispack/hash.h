@@ -181,10 +181,10 @@ namespace redispack
 
     template <class K, class V>
     auto hash<K, V>::del(const K &key) -> bool {
-        const auto keyStrs = std::vector<std::string>{details::encode_into_str(key)};
+        const auto key_strs = std::vector<std::string>{details::encode_into_str(key)};
         bool deleted = false;
 
-        client_ptr->hdel(name, keyStrs,
+        client_ptr->hdel(name, key_strs,
             [&deleted](cpp_redis::reply &r) {
                 if (r.is_integer() && r.as_integer() > 0) {
                     deleted = true;
@@ -198,19 +198,19 @@ namespace redispack
     template <class K, class V>
     auto hash<K, V>::exists(const K &key) const -> bool {
         const auto key_str = details::encode_into_str(key);
-        bool isPresent = false;
+        bool is_present = false;
 
         client_ptr->hexists(name, key_str,
-            [&isPresent](cpp_redis::reply &r) {
+            [&is_present](cpp_redis::reply &r) {
                 static constexpr auto CONTAINS_FIELD_RET_VAL = 1;
 
                 if (r.is_integer() && r.as_integer() == CONTAINS_FIELD_RET_VAL) {
-                    isPresent = true;
+                    is_present = true;
                 }
             });
 
         sync_commit();
-        return isPresent;
+        return is_present;
     }
 
     
@@ -347,7 +347,7 @@ namespace redispack
                 });
         }
 
-        sync_commit();
+        // nothing to commit here the suboperations will do the commit
         return key_vals;
     }
 
