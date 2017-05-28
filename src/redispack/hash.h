@@ -1,11 +1,15 @@
 /**
  * Provides the important hash functions from redis, which makes it similar
- * to the cutdown version of std::map, but with all the Redis hash type goodness.
+ * to the cutdown version of std::unordered_map,
+ * but with all the Redis hash type goodness.
  *
  * @author Chen Weiguang
  */
 
 #pragma once
+
+#include "alias.h"
+#include "util.h"
 
 #include "cpp_redis/cpp_redis"
 #include "msgpack.hpp"
@@ -20,24 +24,9 @@
 #include <utility>
 #include <vector>
 
-namespace redispack
-{
+namespace redispack {
+    
     // declaration section
-
-    namespace details
-    {
-        /** 
-         * Encodes given value into string by packing into msgpack format.
-         */
-        template <class V>
-        auto encode_into_str(const V &value) -> std::string;
-
-        /**
-         * Decodes by unpacking from given string into possibly the actual value.
-         */
-        template <class V>
-        auto decode_from_str(const std::string &str) -> rustfp::Option<V>;
-    }
 
     /** 
      * Provides hash like functionalities from redis.
@@ -45,23 +34,18 @@ namespace redispack
      * All the data is stored in the redis server.
      */
     template <class K, class V>
-    class hash
-    {
+    class hash {
     public:
-        /**
-         * Alias to the K template type, which is the key.
-         */
+        /** Alias to the K template type, which is the key type. */
         using key_t = K;
 
-        /**
-         * Alias to the V template type, which is the value.
-         */
+        /** Alias to the V template type, which is the value type. */
         using value_t = V;
 
         /**
          * Constructs this instance with the given client connection and hash key (name).
          */
-        hash(const std::shared_ptr<cpp_redis::redis_client> &client_ptr, const std::string &name);
+        hash(const redis_client_ptr &client_ptr, const std::string &name);
 
         /** 
          * Performs hdel command.
@@ -103,7 +87,7 @@ namespace redispack
          *
          * @return true if the entry is new, false if the entry was updated.
          */
-        auto set(const K &key, const V value) -> bool;
+        auto set(const K &key, const V &value) -> bool;
 
         /**
          * Performs the hsetnx command.
@@ -111,7 +95,7 @@ namespace redispack
          * @return true if the entry is new, false if another entry with same key exists
          * and no update will be performed.
          */
-        auto setnx(const K &key, const V value) -> bool;
+        auto setnx(const K &key, const V &value) -> bool;
 
         /**
          * Performs the hvals command.
@@ -128,52 +112,17 @@ namespace redispack
         auto key_vals() const -> std::unordered_map<K, V>;
 
     private:
-        /**
-         * Performs sync commit to database. 
-         */
-        void sync_commit() const;
+        /** Holds a shared ownership to access the database. */
+        mutable redis_client_ptr client_ptr;
 
-        /**
-         * Holds a shared ownership to access the database.
-         */
-        mutable std::shared_ptr<cpp_redis::redis_client> client_ptr;
-
-        /** 
-         * Hash key (name).
-         */
+        /** Hash key (name). */
         std::string name;
     };
 
     // implementation section
 
-    namespace details
-    {
-        template <class V>
-        auto encode_into_str(const V &value) -> std::string {
-            std::stringstream buf;
-            ::msgpack::pack(buf, value);
-            return buf.str();
-        }
-
-        template <class V>
-        auto decode_from_str(const std::string &str) -> rustfp::Option<V> {
-            try {
-                V obj;
-
-                ::msgpack::unpack(str.data(), str.size())
-                    .get()
-                    .convert(obj);
-
-                return rustfp::Some(std::move(obj));
-            }
-            catch (const std::exception &e) {
-                return rustfp::None;
-            }
-        }
-    }
-
     template <class K, class V>
-    hash<K, V>::hash(const std::shared_ptr<cpp_redis::redis_client> &client_ptr, const std::string &name) :
+    hash<K, V>::hash(const redis_client_ptr &client_ptr, const std::string &name) :
         client_ptr(client_ptr),
         name(name) {
 
@@ -191,7 +140,7 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return deleted;
     }
 
@@ -209,7 +158,7 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return is_present;
     }
 
@@ -226,7 +175,7 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return std::move(value_opt);
     }
 
@@ -239,7 +188,8 @@ namespace redispack
                 if (r.is_array()) {
                     for (const auto &sub_r : r.as_array()) {
                         if (sub_r.is_bulk_string()) {
-                            auto key_opt = details::decode_from_str<K>(sub_r.as_string());
+                            auto key_opt = details::decode_from_str<K>(
+                                sub_r.as_string());
 
                             std::move(key_opt).match_some(
                                 [&keys](K &&key) {
@@ -250,7 +200,7 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return keys;
     }
 
@@ -265,12 +215,12 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return length;
     }
 
     template <class K, class V>
-    auto hash<K, V>::set(const K &key, const V value) -> bool {
+    auto hash<K, V>::set(const K &key, const V &value) -> bool {
         const auto key_str = details::encode_into_str(key);
         const auto val_str = details::encode_into_str(value);
 
@@ -285,12 +235,12 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return is_new_field;
     }
 
     template <class K, class V>
-    auto hash<K, V>::setnx(const K &key, const V value) -> bool {
+    auto hash<K, V>::setnx(const K &key, const V &value) -> bool {
         const auto key_str = details::encode_into_str(key);
         const auto val_str = details::encode_into_str(value);
 
@@ -305,7 +255,7 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return is_new_field;
     }
 
@@ -329,7 +279,7 @@ namespace redispack
                 }
             });
 
-        sync_commit();
+        details::sync_commit(client_ptr);
         return values;
     }
 
@@ -349,10 +299,5 @@ namespace redispack
 
         // nothing to commit here the suboperations will do the commit
         return key_vals;
-    }
-
-    template <class K, class V>
-    void hash<K, V>::sync_commit() const {
-        client_ptr->sync_commit();
     }
 }

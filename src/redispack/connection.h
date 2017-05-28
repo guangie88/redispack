@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "alias.h"
+
 #include "cpp_redis/redis_client.hpp"
 #include "cpp_redis/redis_error.hpp"
 #include "rustfp/result.h"
@@ -23,12 +25,6 @@ namespace redispack {
         static constexpr auto DEFAULT_HOST = "127.0.0.1";
         static constexpr auto DEFAULT_PORT = 6379;
     }
-
-    /** Alias to cpp_redis::redis_error. */
-    using redis_error = ::cpp_redis::redis_error;
-
-    /** Alias to cpp_redis::redis_client */
-    using redis_client = ::cpp_redis::redis_client;
 
     /**
      * Creates and immediately connects the client to the
